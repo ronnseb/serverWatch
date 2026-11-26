@@ -75,7 +75,7 @@ function App() {
 
   useEffect(() => {
     const fetchMetrics = () => {
-      fetch('http://127.0.0.1:8000/metrics')
+      fetch('http://100.110.65.94:8000/metrics')
         .then((res) => res.json())
         .then((data) => {
           setMetrics(data)
@@ -168,7 +168,7 @@ function App() {
         <section className="loading-state">
           <div className="loading-ring" />
           <h2>Connecting to server</h2>
-          <p>Waiting for metrics from localhost:8000</p>
+          <p>Waiting for metrics from Home</p>
         </section>
       )}
     </main>
