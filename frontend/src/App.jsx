@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 
+const API_BASE_URL = 'http://100.110.65.94:8000'
+
 function Gauge({ value, label, detail, accent, icon }) {
   const safeValue = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0
   const circumference = 2 * Math.PI * 54
@@ -72,10 +74,12 @@ function App() {
   const [connected, setConnected] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [history, setHistory] = useState({ cpu: [], ram: [], disk: [] })
+  const [containers, setContainers] = useState(null)
+  const [containersError, setContainersError] = useState('')
 
   useEffect(() => {
     const fetchMetrics = () => {
-      fetch('http://100.110.65.94:8000/metrics')
+      fetch(`${API_BASE_URL}/metrics`)
         .then((res) => res.json())
         .then((data) => {
           setMetrics(data)
@@ -92,6 +96,30 @@ function App() {
 
     fetchMetrics()
     const interval = setInterval(fetchMetrics, 2000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const fetchContainers = () => {
+      fetch(`${API_BASE_URL}/containers`)
+        .then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            throw new Error(body.detail || 'Unable to load Docker containers')
+          }
+          return res.json()
+        })
+        .then((data) => {
+          setContainers(data)
+          setContainersError('')
+        })
+        .catch((error) => {
+          setContainersError(error.message || 'Unable to load Docker containers')
+        })
+    }
+
+    fetchContainers()
+    const interval = setInterval(fetchContainers, 5000)
     return () => clearInterval(interval)
   }, [])
 
@@ -171,6 +199,58 @@ function App() {
           <p>Waiting for metrics from Home</p>
         </section>
       )}
+
+      <section className="containers-panel" aria-labelledby="containers-heading">
+        <div className="containers-header">
+          <div>
+            <p className="eyebrow">Docker</p>
+            <h2 id="containers-heading">Containers</h2>
+          </div>
+          <span className="containers-refresh">Refreshes every 5 seconds</span>
+        </div>
+
+        {containersError && (
+          <p className="containers-error" role="alert">{containersError}</p>
+        )}
+        {containers === null ? (
+          <p className="containers-message">Loading containers…</p>
+        ) : containers.length === 0 ? (
+          <p className="containers-message">No containers found.</p>
+        ) : (
+          <div className="containers-grid">
+            {containers.map((container) => {
+              const isUnhealthy = container.health_status === 'unhealthy'
+              const isRunning = container.status === 'running'
+              const stateClass = isUnhealthy ? 'unhealthy' : isRunning ? 'running' : 'stopped'
+              const healthLabel = container.health_status || 'No health check'
+
+              return (
+                <article className={`container-card ${stateClass}`} key={container.id}>
+                  <div className="container-title">
+                    <h3>{container.name}</h3>
+                    <span className={`container-status ${stateClass}`}>
+                      {container.status}
+                    </span>
+                  </div>
+                  <p className="container-image" title={container.image}>{container.image}</p>
+                  <p className="container-health">
+                    <span>Health</span>
+                    <strong>{healthLabel}</strong>
+                  </p>
+                  {(container.cpu_percent !== null || container.memory_usage_bytes !== null) && (
+                    <p className="container-usage">
+                      {container.cpu_percent !== null && `CPU ${container.cpu_percent}%`}
+                      {container.cpu_percent !== null && container.memory_usage_bytes !== null && ' · '}
+                      {container.memory_usage_bytes !== null
+                        && `Memory ${(container.memory_usage_bytes / 1024 / 1024).toFixed(1)} MiB`}
+                    </p>
+                  )}
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </section>
     </main>
   )
 }
