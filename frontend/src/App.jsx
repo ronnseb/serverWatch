@@ -3,37 +3,67 @@ import './App.css'
 
 const API_BASE_URL = 'http://100.110.65.94:8000'
 
-function Gauge({ value, label, detail, accent, icon }) {
-  const safeValue = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0
-  const circumference = 2 * Math.PI * 54
-  const offset = circumference - (safeValue / 100) * circumference
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return null
+
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`
+}
+
+function formatMemory(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  const mebibytes = bytes / 1024 / 1024
+  return mebibytes >= 1024
+    ? `${(mebibytes / 1024).toFixed(2)} GiB`
+    : `${mebibytes.toFixed(1)} MiB`
+}
+
+function InfoTooltip({ label, align = 'left', children }) {
+  const tooltipId = `metric-info-${label.toLowerCase().replaceAll(' ', '-')}`
 
   return (
-    <article className="metric-card" style={{ '--accent': accent }}>
+    <details className={`metric-info metric-info--${align}`}>
+      <summary aria-label={`${label} information`} aria-describedby={tooltipId}>
+        <span aria-hidden="true">i</span>
+      </summary>
+      <span className="metric-tooltip" id={tooltipId} role="tooltip">
+        {children}
+      </span>
+    </details>
+  )
+}
+
+function Gauge({ value, label, detail, info, align }) {
+  const hasValue = value !== null && value !== undefined && Number.isFinite(Number(value))
+  const safeValue = hasValue ? Math.min(100, Math.max(0, Number(value))) : 0
+
+  return (
+    <article className="metric-card">
       <div className="metric-heading">
-        <span className="metric-icon" aria-hidden="true">{icon}</span>
-        <div>
-          <p className="metric-label">{label}</p>
-          <p className="metric-detail">{detail}</p>
+        <div className="metric-label-line">
+          <h2 className="metric-label">{label}</h2>
+          <InfoTooltip label={label} align={align}>{info}</InfoTooltip>
         </div>
+        <p className="metric-detail">{detail}</p>
       </div>
 
-      <div className="gauge">
-        <svg viewBox="0 0 128 128" role="img" aria-label={`${label}: ${safeValue.toFixed(1)} percent`}>
-          <circle className="gauge-track" cx="64" cy="64" r="54" />
-          <circle
-            className="gauge-value"
-            cx="64"
-            cy="64"
-            r="54"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-          />
-        </svg>
-        <div className="gauge-reading">
-          <strong>{safeValue.toFixed(1)}</strong>
-          <span>%</span>
-        </div>
+      <div className="metric-reading">
+        <strong className="metric-value">{hasValue ? safeValue.toFixed(1) : '—'}</strong>
+        <span className="metric-unit">{hasValue ? '%' : ''}</span>
+      </div>
+
+      <div
+        className="metric-meter"
+        role="meter"
+        aria-label={label}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={hasValue ? safeValue : undefined}
+        aria-valuetext={hasValue ? `${safeValue.toFixed(1)} percent` : 'No data'}
+      >
+        <span className="metric-meter-value" style={{ width: `${safeValue}%` }} />
       </div>
     </article>
   )
@@ -41,31 +71,100 @@ function Gauge({ value, label, detail, accent, icon }) {
 
 function Trend({ history, accent }) {
   const points = history.slice(-24)
-  if (points.length < 2) return <div className="trend-empty">Collecting trend data…</div>
+  if (points.length < 2) return <div className="trend-empty">Collecting samples</div>
 
   const width = 360
-  const height = 72
+  const height = 56
   const coords = points.map((point, index) => {
     const x = (index / (points.length - 1)) * width
     const y = height - (point / 100) * (height - 8) - 4
     return `${x},${y}`
   })
-  const areaCoords = `0,${height} ${coords.join(' ')} ${width},${height}`
 
   return (
-    <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
-      <defs>
-        <linearGradient id={`trend-fill-${accent.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={accent} stopOpacity="0.22" />
-          <stop offset="100%" stopColor={accent} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon
-        points={areaCoords}
-        fill={`url(#trend-fill-${accent.replace('#', '')})`}
+    <svg
+      className="trend-chart"
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <polyline
+        points={coords.join(' ')}
+        fill="none"
+        stroke={accent}
+        strokeWidth="2"
+        strokeLinecap="square"
+        strokeLinejoin="round"
       />
-      <polyline points={coords.join(' ')} fill="none" stroke={accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  )
+}
+
+function ContainerTable({ containers }) {
+  return (
+    <div className="container-table-wrap">
+      <table className="container-table" aria-label="Docker containers">
+        <thead>
+          <tr>
+            <th scope="col">Container</th>
+            <th scope="col">Image</th>
+            <th scope="col">Status</th>
+            <th scope="col">Health</th>
+            <th scope="col" title="CPU usage from the latest Docker stats sample">CPU</th>
+            <th scope="col" title="Memory currently used; no container limit is reported">Memory</th>
+          </tr>
+        </thead>
+        <tbody>
+          {containers.map((container) => {
+            const status = container.status || 'unknown'
+            const health = container.health_status
+            const statusTone = health === 'unhealthy' || status === 'dead'
+              ? 'critical'
+              : status === 'running'
+                ? health === 'starting' ? 'warning' : 'healthy'
+                : 'stopped'
+            const healthTone = health === 'healthy'
+              ? 'healthy'
+              : health === 'unhealthy'
+                ? 'critical'
+                : health === 'starting'
+                  ? 'warning'
+                  : 'muted'
+
+            return (
+              <tr key={container.id}>
+                <td data-label="Container">
+                  <div className="container-name">
+                    <strong>{container.name}</strong>
+                    <code>{container.id}</code>
+                  </div>
+                </td>
+                <td data-label="Image">
+                  <code className="container-image" title={container.image}>{container.image}</code>
+                </td>
+                <td data-label="Status">
+                  <span className={`state-value state-value--${statusTone}`}>
+                    <i aria-hidden="true" />
+                    {status}
+                  </span>
+                </td>
+                <td data-label="Health">
+                  <span className={`health-value health-value--${healthTone}`}>
+                    {health || 'No check'}
+                  </span>
+                </td>
+                <td data-label="CPU" className="technical-value">
+                  {container.cpu_percent == null ? '—' : `${container.cpu_percent.toFixed(1)}%`}
+                </td>
+                <td data-label="Memory" className="technical-value">
+                  {formatMemory(container.memory_usage_bytes)}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -123,132 +222,143 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  const uptime = metrics ? formatDuration(metrics.uptime_seconds) : null
+  const updatedTime = lastUpdated
+    ? lastUpdated.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+    : 'Waiting for data'
+
   return (
     <main className="dashboard">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M4 14h16M7 14V9m5 5V5m5 9v-6" />
-            </svg>
-          </span>
+          <span className="brand-mark" aria-hidden="true">SW</span>
           <div>
-            <p className="eyebrow">ServerWatch</p>
-            <h1>System overview</h1>
+            <p className="eyebrow">Infrastructure monitor</p>
+            <h1>ServerWatch</h1>
           </div>
         </div>
 
-        <div className="status">
-          <span className={connected ? 'status-dot live' : 'status-dot'} />
-          <div>
-            <strong>{connected ? 'System online' : 'Reconnecting'}</strong>
-            <span>{lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Waiting for data'}</span>
+        <div className="header-meta">
+          <div className="host-identity">
+            <span className="meta-label">Host</span>
+            <strong>{metrics?.hostname || 'Home'}</strong>
+            {uptime && <span className="uptime">Uptime {uptime}</span>}
+          </div>
+          <div className={`connection-status ${connected ? 'is-connected' : ''}`}>
+            <span className="status-dot" aria-hidden="true" />
+            <div>
+              <strong>{connected ? 'Connected' : 'Reconnecting'}</strong>
+              <span>Updated {updatedTime}</span>
+            </div>
           </div>
         </div>
       </header>
 
       {metrics ? (
-        <>
-          <section className="metrics-grid" aria-label="Server metrics">
+        <section className="metrics-section" aria-label="System metrics">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Host telemetry</p>
+              <h2>System resources</h2>
+            </div>
+            <span className="section-note">Live · 2 sec interval</span>
+          </div>
+
+          <div className="metrics-grid">
             <Gauge
               value={metrics.cpu_percent}
-              label="CPU usage"
-              detail="Processor load"
-              accent="#8b5cf6"
-              icon={<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M9 3v4m6-4v4M9 17v4m6-4v4M3 9h4m-4 6h4m10-6h4m-4 6h4"/></svg>}
+              label="CPU"
+              detail="Current processor activity"
+              align="left"
+              info={(
+                <span>
+                  Current CPU utilization is <b>{Number(metrics.cpu_percent).toFixed(1)}%</b> of the
+                  reported capacity. This reflects current activity, not total processor capacity.
+                </span>
+              )}
             />
             <Gauge
               value={metrics.ram_percent}
-              label="Memory usage"
-              detail="RAM utilization"
-              accent="#22c55e"
-              icon={<svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 17v3m5-3v3m5-3v3M7 7V4m5 3V4m5 3V4"/></svg>}
+              label="RAM"
+              detail="Memory in use"
+              align="center"
+              info={(
+                <span>
+                  The percentage of available RAM currently used by applications and operating
+                  system processes. This API reports the percentage, not used and total byte values.
+                </span>
+              )}
             />
             <Gauge
               value={metrics.disk_percent}
-              label="Disk usage"
-              detail="Root filesystem"
-              accent="#f59e0b"
-              icon={<svg viewBox="0 0 24 24"><ellipse cx="12" cy="7" rx="8" ry="3"/><path d="M4 7v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>}
+              label="Disk"
+              detail="Root filesystem · /"
+              align="right"
+              info={(
+                <span>
+                  Used storage as a percentage of the root filesystem (<code>/</code>). The API
+                  reports the percentage, not used and total byte values.
+                </span>
+              )}
             />
-          </section>
+          </div>
 
-          <section className="trend-panel">
-            <div className="trend-header">
-              <div>
-                <p className="eyebrow">Live activity</p>
-                <h2>Resource trend</h2>
-              </div>
-              <div className="trend-legend">
-                <span><i style={{ background: '#8b5cf6' }} />CPU</span>
-                <span><i style={{ background: '#22c55e' }} />Memory</span>
-                <span><i style={{ background: '#f59e0b' }} />Disk</span>
-              </div>
+          <section className="trend-panel" aria-label="Recent resource trend">
+            <div className="trend-heading">
+              <h2>Recent activity</h2>
+              <span>Samples from this session</span>
             </div>
             <div className="trend-grid">
-              <div className="trend-row"><span>CPU</span><Trend history={history.cpu} accent="#8b5cf6" /></div>
-              <div className="trend-row"><span>Memory</span><Trend history={history.ram} accent="#22c55e" /></div>
-              <div className="trend-row"><span>Disk</span><Trend history={history.disk} accent="#f59e0b" /></div>
+              <div className="trend-row">
+                <span>CPU</span>
+                <Trend history={history.cpu} accent="#83b88d" />
+              </div>
+              <div className="trend-row">
+                <span>RAM</span>
+                <Trend history={history.ram} accent="#a1b99a" />
+              </div>
+              <div className="trend-row">
+                <span>Disk</span>
+                <Trend history={history.disk} accent="#c4a66a" />
+              </div>
             </div>
           </section>
-        </>
+        </section>
       ) : (
-        <section className="loading-state">
-          <div className="loading-ring" />
-          <h2>Connecting to server</h2>
-          <p>Waiting for metrics from Home</p>
+        <section className="metrics-loading" role="status">
+          <span className="loading-indicator" aria-hidden="true" />
+          <div>
+            <h2>Waiting for host metrics</h2>
+            <p>ServerWatch will update as soon as Home is reachable.</p>
+          </div>
         </section>
       )}
 
       <section className="containers-panel" aria-labelledby="containers-heading">
         <div className="containers-header">
           <div>
-            <p className="eyebrow">Docker</p>
+            <p className="eyebrow">Docker runtime</p>
             <h2 id="containers-heading">Containers</h2>
           </div>
-          <span className="containers-refresh">Refreshes every 5 seconds</span>
+          <span className="container-count">
+            {containers === null ? '—' : `${containers.length} total`}
+            <span> · refresh 5 sec</span>
+          </span>
         </div>
 
         {containersError && (
           <p className="containers-error" role="alert">{containersError}</p>
         )}
         {containers === null ? (
-          <p className="containers-message">Loading containers…</p>
+          <p className="containers-message">Loading container inventory…</p>
         ) : containers.length === 0 ? (
           <p className="containers-message">No containers found.</p>
         ) : (
-          <div className="containers-grid">
-            {containers.map((container) => {
-              const isUnhealthy = container.health_status === 'unhealthy'
-              const isRunning = container.status === 'running'
-              const stateClass = isUnhealthy ? 'unhealthy' : isRunning ? 'running' : 'stopped'
-              const healthLabel = container.health_status || 'No health check'
-
-              return (
-                <article className={`container-card ${stateClass}`} key={container.id}>
-                  <div className="container-title">
-                    <h3>{container.name}</h3>
-                    <span className={`container-status ${stateClass}`}>
-                      {container.status}
-                    </span>
-                  </div>
-                  <p className="container-image" title={container.image}>{container.image}</p>
-                  <p className="container-health">
-                    <span>Health</span>
-                    <strong>{healthLabel}</strong>
-                  </p>
-                  {(container.cpu_percent !== null || container.memory_usage_bytes !== null) && (
-                    <p className="container-usage">
-                      {container.cpu_percent !== null && `CPU ${container.cpu_percent}%`}
-                      {container.cpu_percent !== null && container.memory_usage_bytes !== null && ' · '}
-                      {container.memory_usage_bytes !== null
-                        && `Memory ${(container.memory_usage_bytes / 1024 / 1024).toFixed(1)} MiB`}
-                    </p>
-                  )}
-                </article>
-              )
-            })}
-          </div>
+          <ContainerTable containers={containers} />
         )}
       </section>
     </main>
