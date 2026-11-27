@@ -10,7 +10,7 @@ app = FastAPI(title="ServerWatch API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173","http://100.110.65.94",],
     allow_credentials=False,
     allow_methods=["GET"],
     allow_headers=["*"],
