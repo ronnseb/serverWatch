@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-DB_PATH = Path(__file__).resolve().parent / "data" / "serverwatch.db"
+DB_PATH = Path("/mnt/mirror/serverwatch/data/serverwatch.db")
 
 METRICS_RETENTION_DAYS = 90
 
