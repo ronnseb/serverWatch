@@ -3,3 +3,10 @@ __pycache__/
 *.py[cod]
 .env
 node_modules/
+#database
+backend/data/
+*.db
+*.db-shm
+*.db-wal
+
+
